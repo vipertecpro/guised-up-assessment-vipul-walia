@@ -2,13 +2,13 @@
 
 ## 1. Executive Summary
 
-This assessment will deliver a deliberately small monorepo with three application processes: an Expo React Native feed screen, a Laravel REST API, and a Python FastAPI embedding service. Laravel owns authentication and relational data in PostgreSQL. The Python service owns embedding generation and persistent vector storage in Chroma. The API supports post creation, a personalized paginated feed, natural-language search, and interaction logging without introducing infrastructure that the assignment does not require.
+This assessment implements a deliberately small monorepo with three application processes: an Expo React Native feed screen, a Laravel REST API, and a Python FastAPI embedding service. Laravel owns authentication and relational data in PostgreSQL. The Python service owns embedding generation and persistent vector storage in Chroma. The API supports post creation, a personalized paginated feed, natural-language search, and interaction logging without introducing infrastructure that the assignment does not require.
 
-Authenticity is an explainable text-based approximation. The available input contains post text and an optional image URL, so the system will not claim to detect visual filters, retouching, or image polish. Production-grade visual authenticity would require image metadata, direct image access, or a vision model.
+Authenticity is an explainable text-based approximation. The available input contains post text and an optional image URL, so the system does not claim to detect visual filters, retouching, or image polish. Production-grade visual authenticity would require image metadata, direct image access, or a vision model.
 
 ## 2. Product Understanding
 
-The product is a focused proof of concept for ranking a social feed around authentic expression and meaningful relationships while supporting semantic discovery. A user can create a text post with an optional remote image URL, browse a ranked feed, search posts by meaning rather than exact keywords, and generate implicit preference data through views, reactions, and replies.
+The product is a focused proof of concept for ranking a social feed around authentic expression and meaningful relationships while supporting semantic discovery. The API can create a text post with an optional remote image URL; the single mobile screen browses the ranked feed, searches posts by meaning rather than exact keywords, and records reaction events. The API also accepts view and reply interaction events for preference signals.
 
 The assessment tests system design, ranking choices, API quality, data modeling, SQL fluency, a single mobile feed experience, and reproducible local setup. It is not a complete social network.
 
@@ -21,7 +21,7 @@ The assessment tests system design, ranking choices, API quality, data modeling,
 - Generate post and query embeddings through FastAPI and persist vectors in Chroma.
 - Rank feeds using authenticity, relationship depth, semantic relevance, and time decay.
 - Render one Expo React Native TypeScript feed screen.
-- Provide raw PostgreSQL challenge queries and reproducible local instructions in later phases.
+- Provide four raw PostgreSQL challenge queries and reproducible local instructions.
 - Keep decisions explainable and the local system easy to run.
 
 ### Non-Goals
@@ -34,10 +34,10 @@ The assessment tests system design, ranking choices, API quality, data modeling,
 ## 4. Assumptions
 
 - All API endpoints require a valid local Sanctum bearer token.
-- Seeders will create at least two users and print or otherwise expose local-only tokens through a documented command; no login screen or authentication endpoint is needed.
+- Seeders create three demo users; a documented local-only command issues tokens, so no login screen or authentication endpoint is needed.
 - An interaction of type `reply` records that a reply occurred; reply body storage is outside scope.
 - `image_url` is a reference to an already-hosted image, not an upload.
-- Post text is the only content embedded in Phase 1's selected design.
+- Post text is the only content embedded by the implemented service.
 - Chroma runs persistently inside the Python service process using a local data directory; it is not a fourth network service.
 - Feed candidates exclude the requesting user's own posts and use a bounded recent candidate set so ranking remains understandable for the take-home.
 - All timestamps are stored in UTC and returned as ISO 8601 strings.
@@ -54,11 +54,9 @@ guised-up-assessment-vipul-walia/
 ├── docs/
 │   └── TSD.md                  # This document
 ├── sql/
-│   └── queries.sql             # SQL challenge, added in a later phase
+│   └── queries.sql             # Four PostgreSQL challenge queries
 └── README.md
 ```
-
-Only `README.md` and this document are created in Phase 1.
 
 ## 6. System Architecture
 
@@ -82,7 +80,7 @@ Laravel is the public application boundary and source of truth for post and inte
 
 ### Post creation and embedding
 
-1. The mobile client sends authenticated `POST /api/posts` with `text` and optional `image_url`.
+1. An authenticated API consumer sends `POST /api/posts` with `text` and optional `image_url`; post creation UI is outside the single mobile screen's scope.
 2. Laravel validates the request, calculates the text-based authenticity score, and inserts the post with `embedding_status = pending`.
 3. After the database insert commits, Laravel synchronously asks FastAPI to embed the text and upsert the vector under `post-{id}` with `post_id` metadata.
 4. Laravel stores that identifier in `vector_document_id` and marks the post `ready`.
@@ -116,11 +114,11 @@ Phase 6 implements one `FlatList`-based Expo screen. A small typed `fetch` clien
 
 Feed pagination follows `meta.has_more_pages`, permits only one next-page request at a time, retries a failed page without discarding loaded posts, and appends unique IDs in backend order. Pull-to-refresh replaces the feed with page one and keeps reacted IDs. A trimmed non-empty query switches the same list area into search mode after a 350 ms debounce, aborts stale requests, preserves Laravel's semantic order, and disables feed pagination and refresh until cleared.
 
-The screen architecture matches the planned single-screen design. The only testing-strategy deviation is using focused Jest unit coverage for the API boundary and relative-time utility without React Native Testing Library; this avoids adding a component-test library solely for the assessment while the required TypeScript and native Expo export gates validate the composed screen.
+The screen architecture matches the intended single-screen design. The only testing-strategy deviation is using focused Jest unit coverage for the API boundary and relative-time utility without React Native Testing Library; this avoids adding a component-test library solely for the assessment while the required TypeScript and native Expo export gates validate the composed screen.
 
 ## 8. Database Schema
 
-PostgreSQL is authoritative for application data. IDs use `bigint` identity columns, the application writes UTC values through Eloquent's portable Laravel timestamps, and foreign keys enforce ownership.
+PostgreSQL is authoritative for application data. IDs use auto-incrementing `bigint` columns and foreign keys enforce ownership. Laravel treats application timestamps as UTC and serializes them as ISO 8601, while the current PostgreSQL migrations use nullable `timestamp(0) without time zone` columns.
 
 ### `users`
 
@@ -129,9 +127,9 @@ PostgreSQL is authoritative for application data. IDs use `bigint` identity colu
 | `id` | `bigint` | Primary key |
 | `name` | `varchar(255)` | Required |
 | `email` | `varchar(255)` | Required, unique |
-| `email_verified_at` | `timestamptz` | Nullable |
+| `email_verified_at` | `timestamp(0) without time zone` | Nullable |
 | `password` | `varchar(255)` | Required, hashed; seeded locally |
-| `created_at`, `updated_at` | `timestamptz` | Required |
+| `created_at`, `updated_at` | `timestamp(0) without time zone` | Nullable at the schema level; written by Eloquent |
 
 ### `posts`
 
@@ -140,14 +138,14 @@ PostgreSQL is authoritative for application data. IDs use `bigint` identity colu
 | `id` | `bigint` | Primary key |
 | `user_id` | `bigint` | FK to `users.id`, cascade on delete |
 | `text` | `text` | Required, non-blank, maximum 5,000 characters at API boundary |
-| `image_url` | `varchar(255)` | Nullable; URL validation belongs at the later API boundary |
+| `image_url` | `varchar(2048)` | Nullable; API accepts only HTTP(S) URLs up to 2,048 characters |
 | `authenticity_score` | `numeric(5,4)` | Required, default `0`; application values remain between `0` and `1` |
 | `vector_document_id` | `varchar(255)` | Nullable, unique when present |
 | `embedding_status` | `varchar(255)` | Required, default `pending`; expected application values are `pending`, `ready`, `failed` |
 | `embedding_error` | `text` | Nullable indexing failure detail |
-| `created_at`, `updated_at` | Laravel timestamps | Required, written in UTC |
+| `created_at`, `updated_at` | `timestamp(0) without time zone` | Nullable at the schema level; written by Eloquent in UTC |
 
-Indexes: `(user_id, created_at)` for author post queries, `created_at` for recent feed candidates, and `embedding_status` for later indexing work. `vector_document_id` has a nullable unique index.
+Indexes: `(user_id, created_at)` for author post queries, `created_at` for recent feed candidates, and `embedding_status` for the indexing command. `vector_document_id` has a nullable unique index.
 
 ### `interactions`
 
@@ -157,7 +155,7 @@ Indexes: `(user_id, created_at)` for author post queries, `created_at` for recen
 | `user_id` | `bigint` | FK to `users.id`, cascade on delete |
 | `post_id` | `bigint` | FK to `posts.id`, cascade on delete |
 | `type` | `varchar(255)` | Expected application values are `view`, `reaction`, `reply` |
-| `created_at`, `updated_at` | Laravel timestamps | Required, written in UTC |
+| `created_at`, `updated_at` | `timestamp(0) without time zone` | Nullable at the schema level; written by Eloquent in UTC |
 
 Indexes: `(user_id, created_at)` for user-interest history; `(post_id, type)` for interaction aggregation; `(user_id, post_id, created_at)` for event history; and `(type, created_at)` for type-specific recency queries. No uniqueness constraint is added because repeated events, especially views, are meaningful. Allowed status/type checks remain at the application boundary so the migrations remain portable to Laravel's normal test environment.
 
@@ -173,6 +171,10 @@ Laravel Sanctum's standard polymorphic token table is used: `id`, `tokenable_typ
 
 A separate follows system is unnecessary because relationship depth can be inferred from the requesting user's weighted interactions with each post author. This directly serves the required ranking signal without expanding the assessment into social-graph management.
 
+### SQL challenge
+
+[`sql/queries.sql`](../sql/queries.sql) contains the four PostgreSQL answers: recent active actors, recent posts from an input user's strongest interaction relationships, high-view zero-reaction posts, and potential-spam authors. They use the existing user, post, interaction-type/date, actor/date, post/type, and author/date indexes without schema changes. D2 intentionally counts each interaction event equally, unlike the weighted feed relationship signal.
+
 ## 9. Vector Embedding Design
 
 ### Why Chroma
@@ -185,7 +187,7 @@ The service runs on the tested Python 3.14.4 environment and normally uses `sent
 
 `POST /documents/upsert` embeds and stores a document. `POST /search` embeds a non-empty natural-language query, supports limits from 1 to 50 and explicit ID exclusions, and returns document IDs, scalar metadata, and higher-is-better scores mapped from cosine similarity into `[0, 1]`. Empty collections return an empty result set. PostgreSQL content is not fabricated or returned by this service.
 
-### Seed recommendations and later user-interest integration
+### Seed recommendations and user-interest integration
 
 `POST /recommendations` accepts one or more seed document IDs, ignores missing IDs when at least one valid seed remains, averages and L2-normalizes the valid stored vectors, and queries the same collection. Seed IDs and explicit exclusions are omitted from the response. If no seed exists, the service returns a clear not-found error. Laravel selects up to 20 recent unique vector-ready posts from the authenticated user's interactions; this endpoint supplies only the vector-similarity component and does not invent relational interaction data.
 
@@ -199,17 +201,13 @@ The service runs on the tested Python 3.14.4 environment and normally uses `sent
 - Chroma results whose posts no longer exist in PostgreSQL are ignored.
 - Timeouts are short and explicit; errors are logged without exposing internals to the client.
 
-### Production changes
-
-A production system would index asynchronously, add durable retries and observability, version embedding models, rebuild collections safely, cache user-interest vectors, reconcile orphaned records, and consider PostgreSQL with `pgvector` or a managed vector database. Those changes are not implementation scope for this assessment.
-
 ## 10. API Design
 
 ### Authentication strategy
 
-Every endpoint uses `auth:sanctum` and accepts `Authorization: Bearer <local-token>`. Seeders create at least two local users. A local-only Artisan command or clearly marked seeding output creates tokens for simulator testing. No login endpoint or mobile login screen is added.
+Every endpoint uses `auth:sanctum` and accepts `Authorization: Bearer <local-token>`. Seeders create three local users. The local-only `app:issue-demo-token` command creates tokens for simulator testing. No login endpoint or mobile login screen is added.
 
-All successful responses use a `data` key. Validation and service errors share a predictable error shape.
+Successful responses from the four assignment endpoints use a `data` key. Validation and service errors share a predictable error shape; the auxiliary `/api/user` route returns Laravel's authenticated user representation directly.
 
 ### `POST /api/posts`
 
@@ -341,14 +339,14 @@ Response: `201 Created`.
 
 ```json
 {
-  "message": "The given data was invalid.",
+  "message": "The selected type is invalid.",
   "errors": {
     "type": ["The selected type is invalid."]
   }
 }
 ```
 
-Non-validation failures use the same top-level `message` and may include a stable `code`, for example `EMBEDDING_SERVICE_UNAVAILABLE`, but never a stack trace.
+Non-validation failures use a sanitized top-level `message` and never expose a stack trace or upstream response body.
 
 Post creation is a deliberate partial-failure boundary: PostgreSQL creation still returns `201` when semantic indexing fails. The post is returned with `embedding_status: "failed"` and a sanitized retry warning; upstream bodies, vector data, and `embedding_error` are not exposed.
 
@@ -424,16 +422,14 @@ The endpoint does not blend popularity or relationship signals because the requi
 - Local tokens are development credentials, excluded from source control, and generated through seed output or a local-only command.
 - Route middleware derives `user_id`; clients cannot submit another user's ID.
 - Laravel validation bounds strings, restricts interaction types, validates foreign keys, and accepts only HTTP(S) image URLs.
-- Eloquent/query bindings prevent SQL injection; raw SQL challenge queries will use parameters where inputs are represented.
+- Eloquent/query bindings prevent SQL injection; the SQL challenge uses a one-row typed parameter CTE for its input user ID.
 - FastAPI is bound for local development and is not exposed to the mobile app. Laravel uses a configured base URL and short timeout.
 - API errors omit stack traces, secrets, model paths, and internal service responses.
-- Rate limiting uses Laravel's built-in API throttling; no Redis dependency is introduced.
-- CORS is limited to required local development origins where applicable.
-- The repository stays private and confidential assignment files are never copied into it.
+- Repository visibility is intentionally public for direct recruiter access. The original assessment PDF, secrets, access tokens, credentials, generated data, and local environment files are excluded. Public visibility was a deliberate submission choice made by the candidate.
 
 ## 14. Testing Strategy
 
-Laravel uses PHPUnit feature and unit tests; the Python service uses `pytest`; the mobile screen uses Jest and React Native Testing Library when scaffolded.
+Laravel uses PHPUnit feature and unit tests, the Python service uses `pytest`, and the mobile project uses focused Jest tests for its API boundary and relative-time utility. TypeScript and native Expo exports validate the composed mobile screen without adding a component-test framework solely for this assessment.
 
 Critical tests include:
 
@@ -443,19 +439,20 @@ Critical tests include:
 4. **Semantic search feature test:** a query returns at most 10 posts in vector relevance order and returns the documented `503` when FastAPI is unavailable.
 5. **Authorization and validation tests:** unauthenticated requests return `401`; invalid post, query, interaction type, URL, and missing post IDs return `422` without persistence.
 6. **Embedding service tests:** temporary Chroma storage and the explicit deterministic hash provider verify health reporting, idempotent upserts, related-content search ordering, seed recommendations, exclusions, scalar metadata validation, and missing-seed errors without model downloads or network access.
-7. **Mobile feed test:** loading, populated, empty, and error states render correctly, pagination requests the next page once, and interaction actions send the expected payload.
+7. **Mobile client tests:** request tests verify base-URL normalization, bearer headers, the exact reaction payload, authentication sanitization, and malformed success handling; relative-time tests cover minutes, hours, days, weeks, invalid values, and future values.
+8. **SQL correctness checks:** each D1-D4 query executes on PostgreSQL, with rollback-only validation data covering aggregate separation, limits, author frequency, time windows, zero reactions, and strict post-count thresholds.
 
 ## 15. Local Development Strategy
 
 PostgreSQL must be running locally and the Laravel/Python environment variables must point to writable local storage. Chroma persists under `services/embeddings/storage/chroma/` (ignored by Git) and is opened by FastAPI rather than run separately.
 
-The three application processes that will eventually run are:
+The three application processes are:
 
-1. **Laravel API:** run through Laravel Herd or `php artisan serve` from `apps/api`. Migrations and seeders prepare PostgreSQL; a documented local command or seeding output provides Sanctum tokens for at least two users.
+1. **Laravel API:** run portably through `php artisan serve` from `apps/api`. Migrations and seeders prepare PostgreSQL; `app:issue-demo-token` provides a local Sanctum token.
 2. **Embedding service:** use Python 3.14.4 to create a virtual environment under `services/embeddings`, install the pinned requirements, copy `.env.example` to `.env`, and run FastAPI with Uvicorn. It lazily loads `sentence-transformers/all-MiniLM-L6-v2` once and uses local persistent Chroma storage.
 3. **Expo mobile app:** copy `.env.example` to `.env`, set a reachable `EXPO_PUBLIC_API_BASE_URL` and locally issued `EXPO_PUBLIC_API_TOKEN`, run `npm start` from `apps/mobile`, and open the app in an iOS/Android simulator or Expo Go. Use loopback for iOS, `10.0.2.2` for the Android emulator, or the development machine's LAN IP for a physical device. The `EXPO_PUBLIC_*` token is bundled and is acceptable only for this local assessment demonstration.
 
-Exact installation, migration, seeding, and start commands will be added once each application is scaffolded. Phase 1 does not install dependencies or create these applications.
+The root [README](../README.md) contains the complete fresh-clone setup, service order, networking options, token workflow, and validation commands.
 
 ## 16. Trade-offs and Limitations
 
@@ -477,7 +474,7 @@ Production evolution would add asynchronous durable indexing, model and collecti
 AI assistance is disclosed rather than presented as unaided work:
 
 - ChatGPT was used for assignment analysis and phased planning before repository implementation, as provided in the assignment workflow context.
-- OpenAI Codex Goal Mode is the selected repository implementation workflow. Phase 1 uses Codex to produce and structure documentation only; later log entries must describe only work actually performed.
+- OpenAI Codex Goal Mode was used to inspect, implement, validate, and document each focused phase.
 - All generated decisions and code remain subject to developer review, testing, and correction.
 
 ### Running log
@@ -485,30 +482,31 @@ AI assistance is disclosed rather than presented as unaided work:
 | Date | Tool | Phase | Work performed | Human review |
 |---|---|---|---|---|
 | 2026-07-13 | ChatGPT | Planning | Analyzed the assignment and organized work into phases. | Requirements carried into the Phase 1 contract. |
-| 2026-07-13 | OpenAI Codex Goal Mode | Phase 1 | Authored the TSD and minimal README; no application code was scaffolded. | Pending final document review. |
+| 2026-07-13 | OpenAI Codex Goal Mode | Phase 1 | Authored the TSD and minimal README; no application code was scaffolded. | Reviewed during the phased handoff and the final Phase 8 audit. |
 | 2026-07-13 | OpenAI Codex Goal Mode | Phase 2 | Inspected the repository and local toolchain; scaffolded the Laravel API, Expo TypeScript app, and FastAPI service; established the minimal monorepo structure. | Framework startup and static validation completed. |
 | 2026-07-13 | OpenAI Codex Goal Mode | Phase 3 | Added the PostgreSQL post/interaction schema, Eloquent relationships, factories, deterministic demo data, and a local Sanctum token command; validated migrations, relational integrity, and bearer authentication against `guised_up`. | PHPUnit, Composer validation, route inspection, and a live authenticated request completed. |
 | 2026-07-13 | OpenAI Codex Goal Mode | Phase 4 | Implemented the internal FastAPI embedding boundary, explicit transformer and hash providers, persistent cosine Chroma storage, idempotent upserts, search, seed recommendations, validation, and isolated tests. | Python 3.14 dependency imports, pytest, live hash requests, and live `all-MiniLM-L6-v2` semantic ranking were validated; both servers were stopped. |
 | 2026-07-13 | OpenAI Codex Goal Mode | Phase 5 | Implemented the four Sanctum endpoints, deterministic authenticity scoring, personalized feed ranking, Laravel FastAPI integration, existing-post indexing, and focused feature/unit tests. Corrected the ranking normalization and decay lines to match the Phase 5 contract. | PHPUnit and Laravel contract validation completed; the real transformer-backed local smoke test is recorded in the Phase 5 delivery report. |
 | 2026-07-13 | OpenAI Codex Goal Mode | Phase 6 | Implemented the single Expo Feed Screen, strict typed API client, page-based infinite scroll, pull-to-refresh, debounced abortable natural-language search, session-only reaction logging, and intentional inline states. | TypeScript, Jest, Expo public config, Android/iOS exports, and contract/scope checks completed. |
-| TBD | TBD | Later phases | Update only after the work occurs. | TBD |
+| 2026-07-13 | OpenAI Codex Goal Mode | Phase 7 | Implemented and transaction-validated the four PostgreSQL challenge queries, finalized the root setup guide, reviewed the complete TSD against the delivered repository, and documented the intentional public submission choice. | Cross-project tests, SQL rollback checks, links, commands, environment examples, scope, and security were reviewed. |
+| 2026-07-13 | OpenAI Codex Goal Mode | Phase 8 | Completed the final requirement audit, cross-project validation, transformer-backed end-to-end smoke test, public-repository security review, video walkthrough preparation, and final Git submission preparation. | Verified Laravel, Python, mobile exports, SQL, deterministic restored data, documentation accuracy, secret exclusions, and clean process shutdown before submission. |
 
 ## 19. Implementation Sequence
 
-1. **Phase 1:** approve this TSD and README; do not scaffold applications.
-2. **Repository foundation:** create the minimal monorepo directories, ignore local secrets/vector data, and add reproducible environment examples.
-3. **Laravel foundation:** scaffold Laravel, configure PostgreSQL and Sanctum, create minimal migrations/models, seed two users, and provide local token generation.
-4. **Embedding foundation:** scaffold FastAPI, pin the embedding model and dependencies, configure persistent Chroma, and test embed/upsert/query operations.
-5. **Core API:** implement post creation and interaction logging with validation, resources, service errors, and PHPUnit coverage.
-6. **Ranking and search:** implement interest-vector calculation, feed scoring/pagination, semantic search, fallbacks, and deterministic tests.
-7. **Mobile screen:** scaffold Expo TypeScript and build only the feed screen with loading, empty, error, pagination, and interaction behavior.
-8. **SQL and documentation:** add `sql/queries.sql`, complete setup commands, document decisions, and run the agreed quality gates.
+1. **Phase 1:** define and review the TSD and minimal README.
+2. **Phase 2:** scaffold the Laravel, Expo, and FastAPI applications.
+3. **Phase 3:** implement PostgreSQL models, deterministic seed data, Sanctum, and local token generation.
+4. **Phase 4:** implement and test the FastAPI/Chroma embedding boundary.
+5. **Phase 5:** implement the authenticated API, authenticity heuristic, feed ranking, semantic search, interaction logging, and indexing command.
+6. **Phase 6:** implement and validate the single Expo Feed Screen.
+7. **Phase 7:** implement and validate D1-D4, finalize local setup, and complete the TSD review.
+8. **Phase 8:** audit the final submission, rerun every project gate and the live integration flow, prepare the recording guide, and verify the public Git submission.
 
-Each phase should remain reviewable and must not pull production-evolution ideas into assessment scope.
+Each phase was kept reviewable without pulling production-evolution ideas into assessment scope.
 
 ## 20. Acceptance Checklist
 
-### Phase 1 documentation
+### Historical Phase 1 documentation checkpoint
 
 - [x] TSD contains all 20 required sections and the Mermaid architecture diagram.
 - [x] Architecture contains only Expo mobile, Laravel API, PostgreSQL, FastAPI, and Chroma.
@@ -517,8 +515,8 @@ Each phase should remain reviewable and must not pull production-evolution ideas
 - [x] Ranking defines normalized authenticity, relationship, semantic, and decay signals with pseudocode and new-user behavior.
 - [x] API examples, validation, status codes, pagination, security, testing, local processes, trade-offs, AI usage, and implementation order are documented.
 - [x] Authenticity is explicitly limited to available text signals; no visual detection is claimed.
-- [x] README states that implementation has not started and the repository must remain private.
-- [x] No application code, dependencies, SQL challenge file, confidential PDF, commit, or push is part of Phase 1.
+- [x] The Phase 1 README reflected the then-current documentation-only implementation state; repository visibility was clarified later as an intentional public submission choice.
+- [x] Phase 1 added no application code, dependencies, SQL challenge file, confidential PDF, commit, or push.
 
 ### Later implementation
 
@@ -526,5 +524,7 @@ Each phase should remain reviewable and must not pull production-evolution ideas
 - [x] FastAPI and persistent Chroma integration are implemented and tested.
 - [x] The four authenticated API endpoints meet their contracts.
 - [x] The Expo TypeScript feed screen is implemented and tested.
-- [ ] Raw SQL challenge queries are added.
-- [ ] Reproducible setup commands and final quality-gate results are documented.
+- [x] Raw SQL challenge queries are added and transaction-validated on PostgreSQL.
+- [x] Reproducible setup commands and final quality-gate commands are documented.
+- [x] The video walkthrough recording guide is prepared without claiming the video is recorded or uploaded.
+- [x] The final TSD matches the implemented schema, services, API contracts, ranking, mobile scope, and AI-assisted workflow.
