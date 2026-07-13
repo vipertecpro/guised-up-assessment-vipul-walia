@@ -112,7 +112,7 @@ Laravel is the public application boundary and source of truth for post and inte
 
 ## 8. Database Schema
 
-PostgreSQL is authoritative for application data. IDs use `bigint` identity columns, timestamps use timezone-aware values, and foreign keys enforce ownership.
+PostgreSQL is authoritative for application data. IDs use `bigint` identity columns, the application writes UTC values through Eloquent's portable Laravel timestamps, and foreign keys enforce ownership.
 
 ### `users`
 
@@ -132,13 +132,14 @@ PostgreSQL is authoritative for application data. IDs use `bigint` identity colu
 | `id` | `bigint` | Primary key |
 | `user_id` | `bigint` | FK to `users.id`, cascade on delete |
 | `text` | `text` | Required, non-blank, maximum 5,000 characters at API boundary |
-| `image_url` | `varchar(2048)` | Nullable, valid HTTP(S) URL |
-| `authenticity_score` | `numeric(5,4)` | Required, check between `0` and `1` |
+| `image_url` | `varchar(255)` | Nullable; URL validation belongs at the later API boundary |
+| `authenticity_score` | `numeric(5,4)` | Required, default `0`; application values remain between `0` and `1` |
 | `vector_document_id` | `varchar(255)` | Nullable, unique when present |
-| `embedding_status` | `varchar(20)` | Required; check in `pending`, `ready`, `failed` |
-| `created_at`, `updated_at` | `timestamptz` | Required |
+| `embedding_status` | `varchar(255)` | Required, default `pending`; expected application values are `pending`, `ready`, `failed` |
+| `embedding_error` | `text` | Nullable indexing failure detail |
+| `created_at`, `updated_at` | Laravel timestamps | Required, written in UTC |
 
-Indexes: `(created_at DESC, id DESC)` for recent feed candidates and stable pagination; `(user_id, created_at DESC)` for author post queries; `(embedding_status, id)` for re-indexing and vector reconciliation.
+Indexes: `(user_id, created_at)` for author post queries, `created_at` for recent feed candidates, and `embedding_status` for later indexing work. `vector_document_id` has a nullable unique index.
 
 ### `interactions`
 
@@ -147,10 +148,10 @@ Indexes: `(created_at DESC, id DESC)` for recent feed candidates and stable pagi
 | `id` | `bigint` | Primary key |
 | `user_id` | `bigint` | FK to `users.id`, cascade on delete |
 | `post_id` | `bigint` | FK to `posts.id`, cascade on delete |
-| `type` | `varchar(20)` | Check in `view`, `reaction`, `reply` |
-| `created_at`, `updated_at` | `timestamptz` | Required |
+| `type` | `varchar(255)` | Expected application values are `view`, `reaction`, `reply` |
+| `created_at`, `updated_at` | Laravel timestamps | Required, written in UTC |
 
-Indexes: `(user_id, created_at DESC)` for user-interest history; `(user_id, post_id)` for per-user/post analysis; `(post_id, type)` for interaction aggregation; `(post_id, created_at DESC)` for post activity and SQL challenge queries. No uniqueness constraint is added because repeated events, especially views, are meaningful.
+Indexes: `(user_id, created_at)` for user-interest history; `(post_id, type)` for interaction aggregation; `(user_id, post_id, created_at)` for event history; and `(type, created_at)` for type-specific recency queries. No uniqueness constraint is added because repeated events, especially views, are meaningful. Allowed status/type checks remain at the application boundary so the migrations remain portable to Laravel's normal test environment.
 
 ### `personal_access_tokens`
 
@@ -464,6 +465,7 @@ AI assistance is disclosed rather than presented as unaided work:
 | 2026-07-13 | ChatGPT | Planning | Analyzed the assignment and organized work into phases. | Requirements carried into the Phase 1 contract. |
 | 2026-07-13 | OpenAI Codex Goal Mode | Phase 1 | Authored the TSD and minimal README; no application code was scaffolded. | Pending final document review. |
 | 2026-07-13 | OpenAI Codex Goal Mode | Phase 2 | Inspected the repository and local toolchain; scaffolded the Laravel API, Expo TypeScript app, and FastAPI service; established the minimal monorepo structure. | Framework startup and static validation completed. |
+| 2026-07-13 | OpenAI Codex Goal Mode | Phase 3 | Added the PostgreSQL post/interaction schema, Eloquent relationships, factories, deterministic demo data, and a local Sanctum token command; validated migrations, relational integrity, and bearer authentication against `guised_up`. | PHPUnit, Composer validation, route inspection, and a live authenticated request completed. |
 | TBD | TBD | Later phases | Update only after the work occurs. | TBD |
 
 ## 19. Implementation Sequence

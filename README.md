@@ -28,12 +28,14 @@ sql/
 
 ## Current Implementation Status
 
-Phase 2 provides framework scaffolding only:
+Phase 3 provides the relational Laravel foundation:
 
-- Laravel and Sanctum are installed, API routing is enabled, and PostgreSQL placeholders are configured.
+- Laravel uses the local PostgreSQL database `guised_up` with migrations for users, posts, interaction events, and Sanctum tokens.
+- Eloquent relationships, reusable factories, and deterministic demo seed data are implemented.
+- A local-only Artisan command issues replacement Sanctum tokens for demo users.
 - The mobile app renders one minimal placeholder screen and has no navigation or Feed Screen implementation.
 - FastAPI exposes only `GET /health` for infrastructure validation.
-- Feed APIs, post and interaction models, ranking, search, embeddings, Chroma, and SQL challenge queries are not implemented.
+- The four assignment API endpoints, feed ranking, vector search/embeddings, and SQL challenge queries are not implemented yet.
 
 ## Local Setup Summary
 
@@ -44,10 +46,29 @@ cd apps/api
 cp .env.example .env
 composer install
 php artisan key:generate
+php artisan migrate:fresh --seed
 php artisan serve
 ```
 
-Configure the local PostgreSQL database before running migrations in a later phase. Laravel Herd may be used instead of `php artisan serve`.
+Configure `.env` to use the local PostgreSQL database `guised_up` before running migrations. The intended repeatable reset is:
+
+```bash
+php artisan migrate:fresh --seed
+```
+
+The local-only demo accounts all use the password `password`:
+
+- `vipul@example.com`
+- `maya@example.com`
+- `arjun@example.com`
+
+Issue a replacement Sanctum token for the default demo user with:
+
+```bash
+php artisan app:issue-demo-token
+```
+
+Pass another demo email as the optional argument when needed. The command displays the plaintext token once for local assessment use; never commit plaintext tokens. Laravel Herd may be used instead of `php artisan serve`.
 
 ### Embedding Service
 
