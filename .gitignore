@@ -1,0 +1,64 @@
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDEs and editors
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Environment files (keep safe examples)
+.env
+.env.*
+!.env.example
+!.env.*.example
+
+# Laravel / PHP
+apps/api/vendor/
+apps/api/bootstrap/cache/*.php
+apps/api/public/storage
+apps/api/storage/*.key
+apps/api/storage/framework/cache/data/*
+apps/api/storage/framework/sessions/*
+apps/api/storage/framework/testing/*
+apps/api/storage/framework/views/*
+apps/api/storage/logs/*
+apps/api/.phpunit.cache/
+apps/api/.phpunit.result.cache
+
+# Node.js / Expo
+apps/mobile/node_modules/
+apps/mobile/.expo/
+apps/mobile/.expo-shared/
+apps/mobile/dist/
+apps/mobile/web-build/
+apps/mobile/expo-env.d.ts
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Python
+services/embeddings/.venv/
+services/embeddings/venv/
+**/__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Chroma local persistence
+services/embeddings/storage/chroma/
+
+# Coverage artifacts
+coverage/
+htmlcov/
+.coverage
+.coverage.*
+*.lcov
+
+# Logs
+*.log
+logs/
