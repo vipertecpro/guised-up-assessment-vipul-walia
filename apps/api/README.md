@@ -1,58 +1,73 @@
-<p align="center"><a href="https://laravel.com" target="_blank"><img src="https://raw.githubusercontent.com/laravel/art/master/logo-lockup/5%20SVG/2%20CMYK/1%20Full%20Color/laravel-logolockup-cmyk-red.svg" width="400" alt="Laravel Logo"></a></p>
+# Guised Up Laravel API
 
-<p align="center">
-<a href="https://github.com/laravel/framework/actions"><img src="https://github.com/laravel/framework/workflows/tests/badge.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/dt/laravel/framework" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/v/laravel/framework" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://img.shields.io/packagist/l/laravel/framework" alt="License"></a>
-</p>
+This Laravel 13 REST API is the application's main backend. It owns Sanctum authentication, PostgreSQL persistence, API contracts, authenticity scoring, relationship aggregation, feed ranking, and coordination with the internal FastAPI embedding service.
 
-## About Laravel
+## Setup
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
-
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
-
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
-
-## Learning Laravel
-
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
-
-In addition, [Laracasts](https://laracasts.com) contains thousands of video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
-
-You can also watch bite-sized lessons with real-world projects on [Laravel Learn](https://laravel.com/learn), where you will be guided through building a Laravel application from scratch while learning PHP fundamentals.
-
-## Agentic Development
-
-Laravel's predictable structure and conventions make it ideal for AI coding agents like Claude Code, Cursor, and GitHub Copilot. Install [Laravel Boost](https://laravel.com/docs/ai) to supercharge your AI workflow:
+Create the `guised_up` PostgreSQL database, then run these commands from the repository root:
 
 ```bash
-composer require laravel/boost --dev
-
-php artisan boost:install
+cd apps/api
+composer install
+cp .env.example .env
+php artisan key:generate
 ```
 
-Boost provides your agent 15+ tools and skills that help agents build Laravel applications while following best practices.
+Configure the local PostgreSQL connection and confirm `EMBEDDINGS_SERVICE_URL=http://127.0.0.1:8001` in `apps/api/.env`. Then run:
 
-## Contributing
+```bash
+php artisan migrate:fresh --seed
+php artisan app:index-posts
+php artisan app:issue-demo-token vipul@example.com
+php artisan serve --host=127.0.0.1 --port=8000
+```
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+`migrate:fresh` is destructive to the configured database and should be used only with the dedicated local database. FastAPI must be running before post indexing. The seed creates 3 users, 15 posts, and 18 interactions. The token command displays a local plaintext token once and replaces the prior `assessment-mobile` token for that user.
 
-## Code of Conduct
+## Authenticated Routes
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+| Method | Endpoint | Purpose |
+|---|---|---|
+| `GET` | `/api/user` | Return the authenticated user |
+| `POST` | `/api/posts` | Create a post and attempt synchronous indexing |
+| `GET` | `/api/feed?page=1` | Return a 20-item personalized feed page |
+| `GET` | `/api/search?q=...` | Return up to 10 semantic-search results |
+| `POST` | `/api/interactions` | Record a `view`, `reaction`, or `reply` |
 
-## Security Vulnerabilities
+All routes require `Authorization: Bearer <local-token>` through Sanctum.
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+## Feed Ranking
 
-## License
+```text
+score = 0.25 × authenticity
+      + 0.30 × relationship depth
+      + 0.30 × semantic similarity
+      + 0.15 × time decay
+```
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+Relationship weights are `view = 1`, `reaction = 3`, and `reply = 5`. Time decay is `exp(-age_in_hours / 72)`. Platform-wide popularity is not used.
+
+## FastAPI Dependency and Degradation
+
+FastAPI supplies vector indexing, semantic search, and recommendation similarity. PostgreSQL remains authoritative:
+
+- Post creation remains successful when indexing fails and records `embedding_status=failed`.
+- `php artisan app:index-posts` retries pending and failed posts; `--force` re-indexes all posts.
+- Search returns HTTP `503` when semantic infrastructure is unavailable.
+- Feed ranking remains available with semantic similarity set to zero.
+- Stale Chroma IDs are ignored when no corresponding PostgreSQL post exists.
+
+## Validation
+
+From `apps/api`:
+
+```bash
+composer validate
+php artisan test
+vendor/bin/pint --test
+php artisan route:list --path=api -v
+```
+
+The last local run passed 22 tests with 126 assertions. Rerun the commands after cloning.
+
+For complete fresh-clone instructions, API examples, and architecture, see the [root README](../../README.md) and [Technical Solution Document](../../docs/TSD.md).

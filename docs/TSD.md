@@ -471,11 +471,17 @@ Production evolution would add asynchronous durable indexing, model and collecti
 
 ## 18. AI-Assisted Workflow
 
-AI assistance is disclosed rather than presented as unaided work:
+Laravel and PHP are the candidate's primary areas of professional expertise. Python/FastAPI and React Native/Expo are areas of working familiarity rather than claimed specialist expertise.
 
-- ChatGPT was used for assignment analysis and phased planning before repository implementation, as provided in the assignment workflow context.
-- OpenAI Codex Goal Mode was used to inspect, implement, validate, and document each focused phase.
-- All generated decisions and code remain subject to developer review, testing, and correction.
+AI-assisted development is disclosed as part of the implementation workflow:
+
+- ChatGPT supported assignment analysis, technical clarification, decomposition into focused phases, and prompt preparation.
+- OpenAI Codex Goal Mode inspected, implemented, validated, and documented the repository across eight primary phases.
+- Additional correction prompts were used when formatting, documentation, or scope required adjustment.
+- The candidate reviewed every phase before continuing and remained responsible for architecture and product decisions, scope, corrections, validation, and final submission.
+- Generated output was verified through automated tests and live smoke tests rather than trusted without review.
+
+The workflow does not claim that every line was typed manually, that the repository was produced autonomously, or that AI made decisions without candidate direction and review.
 
 ### Running log
 
