@@ -84,7 +84,7 @@ Laravel is the public application boundary and source of truth for post and inte
 
 1. The mobile client sends authenticated `POST /api/posts` with `text` and optional `image_url`.
 2. Laravel validates the request, calculates the text-based authenticity score, and inserts the post with `embedding_status = pending`.
-3. After the database insert commits, Laravel synchronously asks FastAPI to embed the text and upsert the vector under `post:{id}` with `post_id` metadata.
+3. After the database insert commits, Laravel synchronously asks FastAPI to embed the text and upsert the vector under `post-{id}` with `post_id` metadata.
 4. Laravel stores that identifier in `vector_document_id` and marks the post `ready`.
 5. If embedding fails or times out, the post remains usable with `embedding_status = failed`; the API returns the created post honestly rather than pretending semantic indexing succeeded. A documented local retry command may re-index failed posts in a later phase.
 
@@ -92,7 +92,7 @@ Laravel is the public application boundary and source of truth for post and inte
 
 1. The client requests authenticated `GET /api/feed?page=N`.
 2. Laravel loads a bounded set of recent posts and interaction aggregates from PostgreSQL.
-3. When the user has interaction history, Laravel asks FastAPI for semantic similarity against the user's derived interest vector.
+3. When the user has interaction history, Laravel selects relevant seed post IDs and asks FastAPI for recommendations based on their averaged embeddings.
 4. Laravel normalizes the four ranking signals, computes one score per candidate, sorts by score and then recency, and paginates the ranked result at 20 posts per page.
 5. If vector ranking is unavailable, Laravel uses the remaining signals with re-normalized weights and returns a valid feed.
 
@@ -173,14 +173,18 @@ Chroma provides persistent local vector storage, metadata filtering, and nearest
 
 ### Post storage and query embedding
 
-FastAPI uses one documented sentence-embedding model for both posts and queries. On post creation it upserts a Chroma document with ID `post:{post_id}`, the post text, its vector, and `post_id` metadata. Using an idempotent ID makes retries safe. Search embeds the natural-language query with the same model and requests the nearest vectors, returning post IDs, distances, and normalized similarities.
+The service runs on the tested Python 3.14.4 environment and normally uses `sentence-transformers/all-MiniLM-L6-v2` on CPU for both posts and queries. The model loads once, lazily, and produces normalized vectors. FastAPI upserts one persistent Chroma cosine collection named `posts` under `services/embeddings/storage/chroma/`. Each document uses a deterministic caller-supplied ID such as `post-15`, the original post text, and optional string, integer, float, or boolean metadata. Repeating an ID replaces that Chroma document rather than duplicating it.
 
-### User-interest vector
+`POST /documents/upsert` embeds and stores a document. `POST /search` embeds a non-empty natural-language query, supports limits from 1 to 50 and explicit ID exclusions, and returns document IDs, scalar metadata, and higher-is-better scores mapped from cosine similarity into `[0, 1]`. Empty collections return an empty result set. PostgreSQL content is not fabricated or returned by this service.
 
-Laravel loads the user's interacted-with post IDs and event types. FastAPI retrieves their vectors and calculates a weighted mean using `view = 1`, `reaction = 3`, and `reply = 5`, then L2-normalizes the result. Multiple interactions can increase influence, but each post's accumulated contribution is capped at `5` to prevent repeated views from dominating. The vector is calculated on demand for this small assessment rather than stored as another mutable artifact.
+### Seed recommendations and later user-interest integration
+
+`POST /recommendations` accepts one or more seed document IDs, ignores missing IDs when at least one valid seed remains, averages and L2-normalizes the valid stored vectors, and queries the same collection. Seed IDs and explicit exclusions are omitted from the response. If no seed exists, the service returns a clear not-found error. Laravel's authenticated user-interest selection and weighted feed-ranking behavior remain a later phase; this endpoint supplies only the vector-similarity component and does not invent relational interaction data.
 
 ### Failure and fallback behavior
 
+- `sentence_transformer` is the normal provider. If its configured model cannot load or embed, the operation fails clearly; the process never silently changes algorithms.
+- `hash` is an explicit deterministic provider for tests and constrained local environments. It uses stable signed token hashing and normalized vectors, provides lexical similarity only, and is not true semantic understanding.
 - Post creation succeeds relationally even when indexing fails, and exposes `embedding_status = failed`.
 - Feed ranking omits semantic relevance when FastAPI or Chroma is unavailable and re-normalizes the available signal weights.
 - Search returns `503 Service Unavailable` because returning lexical results would misrepresent the required semantic behavior.
@@ -420,17 +424,17 @@ Critical tests include:
 3. **New-user/fallback feed test:** no interaction history and an unavailable embedding service still return an authenticity-and-recency feed without fabricated semantic scores.
 4. **Semantic search feature test:** a query returns at most 10 posts in vector relevance order and returns the documented `503` when FastAPI is unavailable.
 5. **Authorization and validation tests:** unauthenticated requests return `401`; invalid post, query, interaction type, URL, and missing post IDs return `422` without persistence.
-6. **Embedding service tests:** post upserts are idempotent, query/post vectors share dimensions, weighted interest vectors honor the per-post cap, and Chroma persistence survives service restart.
+6. **Embedding service tests:** temporary Chroma storage and the explicit deterministic hash provider verify health reporting, idempotent upserts, related-content search ordering, seed recommendations, exclusions, scalar metadata validation, and missing-seed errors without model downloads or network access.
 7. **Mobile feed test:** loading, populated, empty, and error states render correctly, pagination requests the next page once, and interaction actions send the expected payload.
 
 ## 15. Local Development Strategy
 
-PostgreSQL must be running locally and the Laravel/Python environment variables must point to writable local storage. Chroma persists under `services/embeddings/data/` (ignored by Git) and is opened by FastAPI rather than run separately.
+PostgreSQL must be running locally and the Laravel/Python environment variables must point to writable local storage. Chroma persists under `services/embeddings/storage/chroma/` (ignored by Git) and is opened by FastAPI rather than run separately.
 
 The three application processes that will eventually run are:
 
 1. **Laravel API:** run through Laravel Herd or `php artisan serve` from `apps/api`. Migrations and seeders prepare PostgreSQL; a documented local command or seeding output provides Sanctum tokens for at least two users.
-2. **Embedding service:** create a Python virtual environment under `services/embeddings`, install its pinned requirements in a later phase, and run FastAPI with Uvicorn. It loads the embedding model once and uses local persistent Chroma storage.
+2. **Embedding service:** use Python 3.14.4 to create a virtual environment under `services/embeddings`, install the pinned requirements, copy `.env.example` to `.env`, and run FastAPI with Uvicorn. It lazily loads `sentence-transformers/all-MiniLM-L6-v2` once and uses local persistent Chroma storage.
 3. **Expo mobile app:** run the Expo development server from `apps/mobile` and open the TypeScript app in an iOS/Android simulator or Expo Go, configured with the reachable Laravel base URL and one seeded development token.
 
 Exact installation, migration, seeding, and start commands will be added once each application is scaffolded. Phase 1 does not install dependencies or create these applications.
@@ -440,11 +444,11 @@ Exact installation, migration, seeding, and start commands will be added once ea
 - Authenticity is an explainable text heuristic, not a truth detector. It can be gamed and cannot assess visual filters or polish from an optional URL.
 - Synchronous indexing keeps the architecture reproducible but adds latency to post creation and requires explicit partial-failure handling.
 - PostgreSQL and Chroma can temporarily diverge because there is no cross-store transaction; deterministic IDs and reconciliation reduce the risk.
-- On-demand user-interest vectors and in-memory ranking suit assessment data volumes, not a large feed corpus.
+- On-demand seed-vector aggregation and in-memory Laravel ranking suit assessment data volumes, not a large feed corpus.
 - Interaction-derived relationship depth avoids a follows module but cannot represent relationships before users interact.
 - Repeated interaction rows improve signal fidelity but require aggregation and can be noisy; caps limit abuse in ranking.
 - Offset pagination over a changing ranked feed can shift results between requests. It is accepted for the required small API and fixed 20-item pages.
-- One hard-coded embedding model keeps vectors compatible locally but requires explicit versioning and re-indexing when changed.
+- One configured embedding model per collection keeps vectors compatible locally but requires explicit versioning and re-indexing when changed.
 
 ## 17. Production Evolution
 
@@ -466,6 +470,7 @@ AI assistance is disclosed rather than presented as unaided work:
 | 2026-07-13 | OpenAI Codex Goal Mode | Phase 1 | Authored the TSD and minimal README; no application code was scaffolded. | Pending final document review. |
 | 2026-07-13 | OpenAI Codex Goal Mode | Phase 2 | Inspected the repository and local toolchain; scaffolded the Laravel API, Expo TypeScript app, and FastAPI service; established the minimal monorepo structure. | Framework startup and static validation completed. |
 | 2026-07-13 | OpenAI Codex Goal Mode | Phase 3 | Added the PostgreSQL post/interaction schema, Eloquent relationships, factories, deterministic demo data, and a local Sanctum token command; validated migrations, relational integrity, and bearer authentication against `guised_up`. | PHPUnit, Composer validation, route inspection, and a live authenticated request completed. |
+| 2026-07-13 | OpenAI Codex Goal Mode | Phase 4 | Implemented the internal FastAPI embedding boundary, explicit transformer and hash providers, persistent cosine Chroma storage, idempotent upserts, search, seed recommendations, validation, and isolated tests. | Python 3.14 dependency imports, pytest, live hash requests, and live `all-MiniLM-L6-v2` semantic ranking were validated; both servers were stopped. |
 | TBD | TBD | Later phases | Update only after the work occurs. | TBD |
 
 ## 19. Implementation Sequence
@@ -498,7 +503,7 @@ Each phase should remain reviewable and must not pull production-evolution ideas
 ### Later implementation
 
 - [ ] Laravel API and PostgreSQL schema are implemented and tested.
-- [ ] FastAPI and persistent Chroma integration are implemented and tested.
+- [x] FastAPI and persistent Chroma integration are implemented and tested.
 - [ ] The four authenticated API endpoints meet their contracts.
 - [ ] The Expo TypeScript feed screen is implemented and tested.
 - [ ] Raw SQL challenge queries are added.

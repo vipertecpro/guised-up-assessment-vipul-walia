@@ -2,7 +2,7 @@
 
 ## Overview
 
-This private take-home repository is a minimal monorepo for a planned social feed assessment. It currently contains runnable framework scaffolding for a Laravel API, an Expo React Native TypeScript app, and a FastAPI service; assignment business logic is intentionally deferred to later phases.
+This private take-home repository is a minimal monorepo for a social feed assessment. It contains a Laravel relational foundation, an Expo React Native TypeScript scaffold, and an implemented internal FastAPI vector service. Later assignment phases remain intentionally deferred.
 
 ## Monorepo Structure
 
@@ -11,7 +11,7 @@ apps/
   api/                 # Laravel 13 REST API scaffold with Sanctum
   mobile/              # Expo SDK 57 React Native TypeScript scaffold
 services/
-  embeddings/          # FastAPI scaffold with an infrastructure health route
+  embeddings/          # FastAPI embeddings and persistent Chroma vector search
 docs/
   TSD.md                # Technical solution document
 sql/
@@ -23,19 +23,22 @@ sql/
 - PHP 8.3 or later and Composer
 - PostgreSQL and its command-line client
 - Node.js LTS and npm
-- Python 3.14.4
+- Python 3.14.4 for the tested embedding-service dependency set
 - Expo-compatible iOS or Android simulator, device, or Expo Go
 
 ## Current Implementation Status
 
-Phase 3 provides the relational Laravel foundation:
+Phase 4 adds the internal embedding and vector-search foundation:
 
 - Laravel uses the local PostgreSQL database `guised_up` with migrations for users, posts, interaction events, and Sanctum tokens.
 - Eloquent relationships, reusable factories, and deterministic demo seed data are implemented.
 - A local-only Artisan command issues replacement Sanctum tokens for demo users.
-- The mobile app renders one minimal placeholder screen and has no navigation or Feed Screen implementation.
-- FastAPI exposes only `GET /health` for infrastructure validation.
-- The four assignment API endpoints, feed ranking, vector search/embeddings, and SQL challenge queries are not implemented yet.
+- FastAPI provides idempotent post-vector upserts, natural-language search, and seed-document recommendations through one persistent cosine-distance Chroma collection.
+- The normal local embedding provider is `sentence-transformers/all-MiniLM-L6-v2` on CPU.
+- An explicit deterministic hash provider supports tests and environments that cannot run the model; it provides lexical similarity, not true semantic understanding, and is never selected silently.
+- The Python service tests are isolated from normal persistent data and never download the transformer model.
+- The mobile app still renders one minimal placeholder screen and has no navigation or Feed Screen implementation.
+- Laravel integration, assignment endpoints, feed ranking, the mobile feed screen, and SQL challenge queries are still pending.
 
 ## Local Setup Summary
 
@@ -74,12 +77,26 @@ Pass another demo email as the optional argument when needed. The command displa
 
 ```bash
 cd services/embeddings
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
+python3.14 -m venv .venv
+.venv/bin/python -m pip install -r requirements.txt
+cp .env.example .env
 .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8001
 ```
 
-The health endpoint is `http://127.0.0.1:8001/health`.
+The health endpoint is `http://127.0.0.1:8001/health`. Chroma persists under
+`services/embeddings/storage/chroma/`, which is ignored by Git.
+
+Run the deterministic service tests:
+
+```bash
+cd services/embeddings
+.venv/bin/python -m pytest -q
+```
+
+To opt into the non-semantic lexical fallback for local operation, set
+`EMBEDDING_PROVIDER=hash`. The service does not silently fall back when the
+configured sentence-transformer model fails. Laravel does not call this service
+yet; that integration belongs to a later phase.
 
 ### Mobile App
 

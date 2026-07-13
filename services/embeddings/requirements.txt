@@ -1,3 +1,7 @@
-fastapi
-uvicorn
-pydantic-settings
+fastapi==0.139.0
+uvicorn==0.51.0
+pydantic-settings==2.14.2
+chromadb==1.4.1
+sentence-transformers==5.2.3
+pytest==9.0.2
+httpx==0.28.1
