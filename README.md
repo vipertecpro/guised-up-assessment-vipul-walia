@@ -1,5 +1,11 @@
 # Guised Up — Real Connections Feed
 
+## Full Video Walkthrough
+
+[![Watch the complete Guised Up video walkthrough](docs/guised-up-video-preview.gif)](docs/guised-up-full-walkthrough.mp4)
+
+**[▶ Watch the complete 7-minute walkthrough](docs/guised-up-full-walkthrough.mp4)** — architecture, protected APIs, feed ranking, the working mobile experience, semantic search, SQL, automated tests, trade-offs, and local setup.
+
 ## Overview
 
 Guised Up is a full-stack take-home assessment that implements a personalized social feed without using platform-wide popularity as a ranking signal. It ranks posts using authenticity, relationship depth, semantic similarity, and time decay, and it supports natural-language post discovery through semantic search.
@@ -16,7 +22,8 @@ Guised Up is a full-stack take-home assessment that implements a personalized so
 - Four raw PostgreSQL challenge queries
 - Automated Laravel, Python, and mobile tests
 - [Technical Solution Document](docs/TSD.md)
-- [Video walkthrough preparation guide](docs/VIDEO_WALKTHROUGH.md)
+- [Complete narrated video walkthrough](docs/guised-up-full-walkthrough.mp4)
+- [Video walkthrough recording guide](docs/VIDEO_WALKTHROUGH.md)
 
 ## Candidate Background and Ownership
 
@@ -443,7 +450,8 @@ These are local validation results and should be rerun after cloning.
 ## Documentation Links
 
 - [Technical Solution Document](docs/TSD.md)
-- [Video walkthrough preparation guide](docs/VIDEO_WALKTHROUGH.md)
+- [Complete narrated video walkthrough](docs/guised-up-full-walkthrough.mp4)
+- [Video walkthrough recording guide](docs/VIDEO_WALKTHROUGH.md)
 - [PostgreSQL challenge queries](sql/queries.sql)
 - [Laravel API guide](apps/api/README.md)
 - [Mobile application guide](apps/mobile/README.md)

@@ -1,6 +1,8 @@
 # Video Walkthrough Recording Guide
 
-This is a preparation guide for a concise 6-to-8-minute explanation video. It does not indicate that the video has been recorded or uploaded.
+The complete [7-minute narrated video walkthrough](guised-up-full-walkthrough.mp4) has been recorded from this guide. It covers the architecture, protected APIs, ranking formula, verified mobile application states, semantic search, SQL challenge, current automated test results, deliberate trade-offs, and local setup without exposing credentials.
+
+The root README displays an animated preview and links directly to the full 1080p walkthrough. The outline below remains the recording source of truth and can be reused if the walkthrough needs to be recorded again.
 
 ## Before Recording
 
