@@ -15,7 +15,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('user_id')->constrained()->cascadeOnDelete();
             $table->text('text');
-            $table->string('image_url')->nullable();
+            $table->string('image_url', 2048)->nullable();
             $table->decimal('authenticity_score', 5, 4)->default(0);
             $table->string('vector_document_id')->nullable()->unique();
             $table->string('embedding_status')->default('pending');

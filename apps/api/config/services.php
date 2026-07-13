@@ -35,4 +35,10 @@ return [
         ],
     ],
 
+    'embeddings' => [
+        'url' => env('EMBEDDINGS_SERVICE_URL', 'http://127.0.0.1:8001'),
+        'timeout' => (int) env('EMBEDDINGS_SERVICE_TIMEOUT', 15),
+        'connect_timeout' => (int) env('EMBEDDINGS_SERVICE_CONNECT_TIMEOUT', 3),
+    ],
+
 ];

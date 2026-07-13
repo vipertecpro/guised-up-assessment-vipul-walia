@@ -86,7 +86,7 @@ Laravel is the public application boundary and source of truth for post and inte
 2. Laravel validates the request, calculates the text-based authenticity score, and inserts the post with `embedding_status = pending`.
 3. After the database insert commits, Laravel synchronously asks FastAPI to embed the text and upsert the vector under `post-{id}` with `post_id` metadata.
 4. Laravel stores that identifier in `vector_document_id` and marks the post `ready`.
-5. If embedding fails or times out, the post remains usable with `embedding_status = failed`; the API returns the created post honestly rather than pretending semantic indexing succeeded. A documented local retry command may re-index failed posts in a later phase.
+5. If embedding fails or times out, the post remains usable with `embedding_status = failed`; the API returns the created post honestly rather than pretending semantic indexing succeeded. The `app:index-posts` command can retry it locally.
 
 ### Personalized feed retrieval
 
@@ -94,7 +94,7 @@ Laravel is the public application boundary and source of truth for post and inte
 2. Laravel loads a bounded set of recent posts and interaction aggregates from PostgreSQL.
 3. When the user has interaction history, Laravel selects relevant seed post IDs and asks FastAPI for recommendations based on their averaged embeddings.
 4. Laravel normalizes the four ranking signals, computes one score per candidate, sorts by score and then recency, and paginates the ranked result at 20 posts per page.
-5. If vector ranking is unavailable, Laravel uses the remaining signals with re-normalized weights and returns a valid feed.
+5. If vector ranking is unavailable, Laravel sets semantic relevance to zero, marks `semantic_ranking_available` false, and returns a valid feed using the same documented weights.
 
 ### Semantic search
 
@@ -179,14 +179,14 @@ The service runs on the tested Python 3.14.4 environment and normally uses `sent
 
 ### Seed recommendations and later user-interest integration
 
-`POST /recommendations` accepts one or more seed document IDs, ignores missing IDs when at least one valid seed remains, averages and L2-normalizes the valid stored vectors, and queries the same collection. Seed IDs and explicit exclusions are omitted from the response. If no seed exists, the service returns a clear not-found error. Laravel's authenticated user-interest selection and weighted feed-ranking behavior remain a later phase; this endpoint supplies only the vector-similarity component and does not invent relational interaction data.
+`POST /recommendations` accepts one or more seed document IDs, ignores missing IDs when at least one valid seed remains, averages and L2-normalizes the valid stored vectors, and queries the same collection. Seed IDs and explicit exclusions are omitted from the response. If no seed exists, the service returns a clear not-found error. Laravel selects up to 20 recent unique vector-ready posts from the authenticated user's interactions; this endpoint supplies only the vector-similarity component and does not invent relational interaction data.
 
 ### Failure and fallback behavior
 
 - `sentence_transformer` is the normal provider. If its configured model cannot load or embed, the operation fails clearly; the process never silently changes algorithms.
 - `hash` is an explicit deterministic provider for tests and constrained local environments. It uses stable signed token hashing and normalized vectors, provides lexical similarity only, and is not true semantic understanding.
 - Post creation succeeds relationally even when indexing fails, and exposes `embedding_status = failed`.
-- Feed ranking omits semantic relevance when FastAPI or Chroma is unavailable and re-normalizes the available signal weights.
+- Feed ranking sets semantic relevance to zero when FastAPI or Chroma is unavailable and reports that degradation in response metadata.
 - Search returns `503 Service Unavailable` because returning lexical results would misrepresent the required semantic behavior.
 - Chroma results whose posts no longer exist in PostgreSQL are ignored.
 - Timeouts are short and explicit; errors are logged without exposing internals to the client.
@@ -222,12 +222,13 @@ Response: `201 Created`.
 {
   "data": {
     "id": 42,
-    "user_id": 1,
+    "user": { "id": 1, "name": "Vipul Demo" },
     "text": "I finally learned to make my grandmother's soup today.",
     "image_url": "https://example.test/images/soup.jpg",
     "authenticity_score": 0.84,
     "embedding_status": "ready",
-    "created_at": "2026-07-13T10:30:00Z"
+    "created_at": "2026-07-13T10:30:00Z",
+    "updated_at": "2026-07-13T10:30:00Z"
   }
 }
 ```
@@ -243,25 +244,29 @@ Response: `200 OK`.
   "data": [
     {
       "id": 42,
-      "author": { "id": 2, "name": "Asha" },
+      "user": { "id": 2, "name": "Asha" },
       "text": "A quiet morning walk before work.",
       "image_url": null,
-      "created_at": "2026-07-13T08:00:00Z"
+      "authenticity_score": 0.74,
+      "embedding_status": "ready",
+      "created_at": "2026-07-13T08:00:00Z",
+      "updated_at": "2026-07-13T08:00:00Z",
+      "ranking": {
+        "score": 0.82,
+        "authenticity": 0.74,
+        "relationship_depth": 1.0,
+        "semantic_similarity": 0.81,
+        "time_decay": 0.69
+      }
     }
   ],
   "meta": {
     "current_page": 1,
     "per_page": 20,
-    "last_page": 3,
     "total": 47,
-    "from": 1,
-    "to": 20
-  },
-  "links": {
-    "first": "/api/feed?page=1",
-    "last": "/api/feed?page=3",
-    "prev": null,
-    "next": "/api/feed?page=2"
+    "last_page": 3,
+    "has_more_pages": true,
+    "semantic_ranking_available": true
   }
 }
 ```
@@ -270,18 +275,21 @@ Response: `200 OK`.
 
 Validation: `q` is required, a non-blank string, and at most 500 characters. The result limit is fixed at `10`.
 
-Response: `200 OK`; each result has the normal post representation plus a `similarity_score` from `0` to `1`.
+Response: `200 OK`; each result has the normal post representation plus `semantic_similarity` from `0` to `1`.
 
 ```json
 {
   "data": [
     {
       "id": 42,
-      "author": { "id": 2, "name": "Asha" },
+      "user": { "id": 2, "name": "Asha" },
       "text": "A quiet morning walk before work.",
       "image_url": null,
-      "similarity_score": 0.91,
-      "created_at": "2026-07-13T08:00:00Z"
+      "authenticity_score": 0.74,
+      "embedding_status": "ready",
+      "created_at": "2026-07-13T08:00:00Z",
+      "updated_at": "2026-07-13T08:00:00Z",
+      "semantic_similarity": 0.91
     }
   ]
 }
@@ -334,6 +342,8 @@ Response: `201 Created`.
 
 Non-validation failures use the same top-level `message` and may include a stable `code`, for example `EMBEDDING_SERVICE_UNAVAILABLE`, but never a stack trace.
 
+Post creation is a deliberate partial-failure boundary: PostgreSQL creation still returns `201` when semantic indexing fails. The post is returned with `embedding_status: "failed"` and a sanitized retry warning; upstream bodies, vector data, and `embedding_error` are not exposed.
+
 ## 11. Feed Ranking Algorithm
 
 ### Plain-English approach
@@ -343,9 +353,9 @@ The feed favors posts that look conversational and personal based on available t
 ### Normalized signals
 
 - `A`, authenticity: stored directly in `[0,1]`. Start from a neutral base and reward first-person/conversational language and reasonable lexical diversity; penalize excessive hashtags, URLs, repeated characters, all-caps text, and promotional phrasing. It is not a visual-quality score.
-- `R`, relationship depth: sum weighted interactions by the current user across posts from the candidate's author, then normalize as `min(1, ln(1 + weighted_total) / ln(21))`.
-- `S`, semantic relevance: cosine similarity mapped from `[-1,1]` to `[0,1]` using `(cosine + 1) / 2`, then clamped.
-- `T`, time decay: `exp(-ln(2) * age_hours / 72)`, giving recency a 72-hour half-life and a value in `(0,1]`.
+- `R`, relationship depth: sum weighted interactions by the current user across posts from each candidate author, then divide each author total by that user's strongest author total. Authors without history receive `0`.
+- `S`, semantic relevance: use FastAPI's already-normalized higher-is-better similarity in `[0,1]`, then clamp.
+- `T`, time decay: `exp(-age_hours / 72)`, with future timestamps clamped to age zero so the value remains in `(0,1]`.
 
 Interaction weights are `view = 1`, `reaction = 3`, and `reply = 5`. Replies indicate more investment than reactions, while views are useful but weak.
 
@@ -355,11 +365,11 @@ Interaction weights are `view = 1`, `reaction = 3`, and `reply = 5`. Replies ind
 score = 0.25A + 0.30R + 0.30S + 0.15T
 ```
 
-If semantic ranking is unavailable, remove `S` and divide the remaining weighted sum by `0.70`; the result stays normalized. Scores tie-break by `created_at DESC`, then `id DESC`.
+If semantic ranking is unavailable or no valid seed exists, set `S = 0` without changing the exact weights. Scores tie-break by `created_at DESC`, then `id DESC`.
 
 ### New users
 
-For a user with no interactions, `R = 0` and no interest vector exists. The feed uses authenticity and time decay only, re-normalized across their combined weight, providing a useful recent feed without inventing preferences. As interactions accumulate, relationship and semantic signals enter naturally.
+For a user with no interactions, `R = 0` and no interest vector exists. The feed uses authenticity and time decay with the same exact weights, providing a useful recent feed without inventing preferences. As interactions accumulate, relationship and semantic signals enter naturally.
 
 ### Pseudocode
 
@@ -368,23 +378,19 @@ function personalizedFeed(user, page):
     candidates = recentPosts(excludingAuthor=user.id, boundedLimit=500)
     history = interactionsFor(user.id)
     authorWeights = aggregateByPostAuthor(history, view=1, reaction=3, reply=5)
-    interestVector = weightedMeanOfPostVectors(history, perPostCap=5)
+    seedDocuments = recentUniqueVectorReadyPosts(history, limit=20)
 
     semanticScores = {}
-    if interestVector exists and embeddingService is available:
-        semanticScores = similarities(interestVector, candidates)
+    if seedDocuments exist and embeddingService is available:
+        semanticScores = recommendations(seedDocuments, candidates)
 
     ranked = []
     for post in candidates:
         A = clamp(post.authenticityScore, 0, 1)
-        R = min(1, ln(1 + authorWeights[post.userId]) / ln(21))
-        T = exp(-ln(2) * ageInHours(post.createdAt) / 72)
-
-        if post.id exists in semanticScores:
-            S = clamp((semanticScores[post.id] + 1) / 2, 0, 1)
-            score = 0.25*A + 0.30*R + 0.30*S + 0.15*T
-        else:
-            score = (0.25*A + 0.30*R + 0.15*T) / 0.70
+        R = authorWeights[post.userId] / max(authorWeights)
+        S = clamp(semanticScores[post.id] ?? 0, 0, 1)
+        T = exp(-max(0, ageInHours(post.createdAt)) / 72)
+        score = 0.25*A + 0.30*R + 0.30*S + 0.15*T
 
         ranked.append(post, score)
 
@@ -399,6 +405,10 @@ The bounded candidate set is an assessment trade-off. At production scale, candi
 Search treats the submitted sentence as semantic intent, not a set of exact terms. Laravel validates `q`, FastAPI generates an embedding with the same model used for posts, and Chroma returns nearest vectors by cosine distance. FastAPI converts distance into a documented normalized similarity, and Laravel joins vector IDs back to authoritative post records before returning the top 10.
 
 The endpoint does not blend popularity or relationship signals because the requirement is relevance-focused semantic search. Empty queries are rejected, missing relational posts are skipped, and embedding-service failure produces a transparent `503` rather than a misleading substitute.
+
+## 12.1 Existing-post indexing
+
+`php artisan app:index-posts` synchronously processes pending and failed PostgreSQL posts; `--force` processes all posts. Each successful record uses `post-{id}`, becomes ready, and clears its prior sanitized error. Individual failures are marked failed without stopping later records, totals are printed without post text, and any failure produces a non-zero exit status.
 
 ## 13. Security and Authentication
 
@@ -471,6 +481,7 @@ AI assistance is disclosed rather than presented as unaided work:
 | 2026-07-13 | OpenAI Codex Goal Mode | Phase 2 | Inspected the repository and local toolchain; scaffolded the Laravel API, Expo TypeScript app, and FastAPI service; established the minimal monorepo structure. | Framework startup and static validation completed. |
 | 2026-07-13 | OpenAI Codex Goal Mode | Phase 3 | Added the PostgreSQL post/interaction schema, Eloquent relationships, factories, deterministic demo data, and a local Sanctum token command; validated migrations, relational integrity, and bearer authentication against `guised_up`. | PHPUnit, Composer validation, route inspection, and a live authenticated request completed. |
 | 2026-07-13 | OpenAI Codex Goal Mode | Phase 4 | Implemented the internal FastAPI embedding boundary, explicit transformer and hash providers, persistent cosine Chroma storage, idempotent upserts, search, seed recommendations, validation, and isolated tests. | Python 3.14 dependency imports, pytest, live hash requests, and live `all-MiniLM-L6-v2` semantic ranking were validated; both servers were stopped. |
+| 2026-07-13 | OpenAI Codex Goal Mode | Phase 5 | Implemented the four Sanctum endpoints, deterministic authenticity scoring, personalized feed ranking, Laravel FastAPI integration, existing-post indexing, and focused feature/unit tests. Corrected the ranking normalization and decay lines to match the Phase 5 contract. | PHPUnit and Laravel contract validation completed; the real transformer-backed local smoke test is recorded in the Phase 5 delivery report. |
 | TBD | TBD | Later phases | Update only after the work occurs. | TBD |
 
 ## 19. Implementation Sequence
@@ -502,9 +513,9 @@ Each phase should remain reviewable and must not pull production-evolution ideas
 
 ### Later implementation
 
-- [ ] Laravel API and PostgreSQL schema are implemented and tested.
+- [x] Laravel API and PostgreSQL schema are implemented and tested.
 - [x] FastAPI and persistent Chroma integration are implemented and tested.
-- [ ] The four authenticated API endpoints meet their contracts.
+- [x] The four authenticated API endpoints meet their contracts.
 - [ ] The Expo TypeScript feed screen is implemented and tested.
 - [ ] Raw SQL challenge queries are added.
 - [ ] Reproducible setup commands and final quality-gate results are documented.
