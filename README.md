@@ -2,14 +2,14 @@
 
 ## Overview
 
-This private take-home repository is a minimal monorepo for a social feed assessment. It contains a Laravel API, an Expo React Native TypeScript scaffold, and an internal FastAPI vector service. Later assignment phases remain intentionally deferred.
+This private take-home repository is a minimal monorepo for a social feed assessment. It contains a Laravel API, one Expo React Native Feed Screen, and an internal FastAPI vector service. Later assignment phases remain intentionally deferred.
 
 ## Monorepo Structure
 
 ```text
 apps/
   api/                 # Laravel 13 REST API scaffold with Sanctum
-  mobile/              # Expo SDK 57 React Native TypeScript scaffold
+  mobile/              # Expo SDK 57 single-screen React Native client
 services/
   embeddings/          # FastAPI embeddings and persistent Chroma vector search
 docs/
@@ -28,7 +28,7 @@ sql/
 
 ## Current Implementation Status
 
-Phase 5 completes the required backend API and Laravel-to-FastAPI integration:
+Phase 6 completes the required React Native Feed Screen on top of the Phase 5 API:
 
 - Laravel uses the local PostgreSQL database `guised_up` with migrations for users, posts, interaction events, and Sanctum tokens.
 - Eloquent relationships, reusable factories, and deterministic demo seed data are implemented.
@@ -41,8 +41,11 @@ Phase 5 completes the required backend API and Laravel-to-FastAPI integration:
 - The normal local embedding provider is `sentence-transformers/all-MiniLM-L6-v2` on CPU.
 - An explicit deterministic hash provider supports tests and environments that cannot run the model; it provides lexical similarity, not true semantic understanding, and is never selected silently.
 - The Python service tests are isolated from normal persistent data and never download the transformer model.
-- The mobile app still renders one minimal placeholder screen and has no navigation or Feed Screen implementation.
-- The React Native Feed Screen, SQL challenge queries, and final repository polish remain intentionally pending.
+- The Expo app implements only the required Feed Screen; it adds no navigation, authentication UI, or secondary screens.
+- The screen loads the authenticated personalized feed, paginates with `meta.has_more_pages`, refreshes page one, performs debounced natural-language search, and records session-only reactions.
+- Mobile API responses are checked against the Laravel feed, search, interaction, validation, and authentication contracts without exposing ranking or embedding details in the UI.
+- Loading, empty, authentication, configuration, image, search, reaction, refresh, and pagination failures have intentional inline states.
+- SQL challenge queries and final repository polish remain intentionally pending.
 
 ## Local Setup Summary
 
@@ -128,12 +131,17 @@ Semantic search returns HTTP `503` when FastAPI is unavailable. Feed ranking rem
 
 ### Mobile App
 
+See [apps/mobile/README.md](apps/mobile/README.md) for complete backend preparation, token, and networking instructions.
+
 ```bash
 cd apps/mobile
 cp .env.example .env
 npm install
+npm run typecheck
 npm start
 ```
+
+Mobile configuration requires `EXPO_PUBLIC_API_BASE_URL` and `EXPO_PUBLIC_API_TOKEN`. Use `http://127.0.0.1:8000/api` for the iOS simulator, `http://10.0.2.2:8000/api` for the Android emulator, or the development machine's LAN IP for a physical device. `EXPO_PUBLIC_*` values are bundled and the token approach is only for local assessment demonstration.
 
 ## Environment Files
 

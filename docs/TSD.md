@@ -110,6 +110,14 @@ Laravel is the public application boundary and source of truth for post and inte
 2. Laravel validates the type and target post, then inserts an interaction owned by the authenticated user.
 3. The new row contributes to later relationship and interest-vector calculations. Repeated views are allowed because they represent separate events.
 
+### Implemented mobile screen
+
+Phase 6 implements one `FlatList`-based Expo screen. A small typed `fetch` client owns environment validation, bearer headers, safe JSON parsing, and Laravel error extraction. `FeedScreen` owns the loaded feed, pagination metadata, debounced abortable search, refresh, and session-only reaction state; `PostCard` owns presentation and image-failure state. The client calls only feed, search, and interaction endpoints because post creation and authentication screens are outside the assignment's mobile scope.
+
+Feed pagination follows `meta.has_more_pages`, permits only one next-page request at a time, retries a failed page without discarding loaded posts, and appends unique IDs in backend order. Pull-to-refresh replaces the feed with page one and keeps reacted IDs. A trimmed non-empty query switches the same list area into search mode after a 350 ms debounce, aborts stale requests, preserves Laravel's semantic order, and disables feed pagination and refresh until cleared.
+
+The screen architecture matches the planned single-screen design. The only testing-strategy deviation is using focused Jest unit coverage for the API boundary and relative-time utility without React Native Testing Library; this avoids adding a component-test library solely for the assessment while the required TypeScript and native Expo export gates validate the composed screen.
+
 ## 8. Database Schema
 
 PostgreSQL is authoritative for application data. IDs use `bigint` identity columns, the application writes UTC values through Eloquent's portable Laravel timestamps, and foreign keys enforce ownership.
@@ -445,7 +453,7 @@ The three application processes that will eventually run are:
 
 1. **Laravel API:** run through Laravel Herd or `php artisan serve` from `apps/api`. Migrations and seeders prepare PostgreSQL; a documented local command or seeding output provides Sanctum tokens for at least two users.
 2. **Embedding service:** use Python 3.14.4 to create a virtual environment under `services/embeddings`, install the pinned requirements, copy `.env.example` to `.env`, and run FastAPI with Uvicorn. It lazily loads `sentence-transformers/all-MiniLM-L6-v2` once and uses local persistent Chroma storage.
-3. **Expo mobile app:** run the Expo development server from `apps/mobile` and open the TypeScript app in an iOS/Android simulator or Expo Go, configured with the reachable Laravel base URL and one seeded development token.
+3. **Expo mobile app:** copy `.env.example` to `.env`, set a reachable `EXPO_PUBLIC_API_BASE_URL` and locally issued `EXPO_PUBLIC_API_TOKEN`, run `npm start` from `apps/mobile`, and open the app in an iOS/Android simulator or Expo Go. Use loopback for iOS, `10.0.2.2` for the Android emulator, or the development machine's LAN IP for a physical device. The `EXPO_PUBLIC_*` token is bundled and is acceptable only for this local assessment demonstration.
 
 Exact installation, migration, seeding, and start commands will be added once each application is scaffolded. Phase 1 does not install dependencies or create these applications.
 
@@ -482,6 +490,7 @@ AI assistance is disclosed rather than presented as unaided work:
 | 2026-07-13 | OpenAI Codex Goal Mode | Phase 3 | Added the PostgreSQL post/interaction schema, Eloquent relationships, factories, deterministic demo data, and a local Sanctum token command; validated migrations, relational integrity, and bearer authentication against `guised_up`. | PHPUnit, Composer validation, route inspection, and a live authenticated request completed. |
 | 2026-07-13 | OpenAI Codex Goal Mode | Phase 4 | Implemented the internal FastAPI embedding boundary, explicit transformer and hash providers, persistent cosine Chroma storage, idempotent upserts, search, seed recommendations, validation, and isolated tests. | Python 3.14 dependency imports, pytest, live hash requests, and live `all-MiniLM-L6-v2` semantic ranking were validated; both servers were stopped. |
 | 2026-07-13 | OpenAI Codex Goal Mode | Phase 5 | Implemented the four Sanctum endpoints, deterministic authenticity scoring, personalized feed ranking, Laravel FastAPI integration, existing-post indexing, and focused feature/unit tests. Corrected the ranking normalization and decay lines to match the Phase 5 contract. | PHPUnit and Laravel contract validation completed; the real transformer-backed local smoke test is recorded in the Phase 5 delivery report. |
+| 2026-07-13 | OpenAI Codex Goal Mode | Phase 6 | Implemented the single Expo Feed Screen, strict typed API client, page-based infinite scroll, pull-to-refresh, debounced abortable natural-language search, session-only reaction logging, and intentional inline states. | TypeScript, Jest, Expo public config, Android/iOS exports, and contract/scope checks completed. |
 | TBD | TBD | Later phases | Update only after the work occurs. | TBD |
 
 ## 19. Implementation Sequence
@@ -516,6 +525,6 @@ Each phase should remain reviewable and must not pull production-evolution ideas
 - [x] Laravel API and PostgreSQL schema are implemented and tested.
 - [x] FastAPI and persistent Chroma integration are implemented and tested.
 - [x] The four authenticated API endpoints meet their contracts.
-- [ ] The Expo TypeScript feed screen is implemented and tested.
+- [x] The Expo TypeScript feed screen is implemented and tested.
 - [ ] Raw SQL challenge queries are added.
 - [ ] Reproducible setup commands and final quality-gate results are documented.

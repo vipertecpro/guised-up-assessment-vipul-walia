@@ -1,36 +1,20 @@
 import { StatusBar } from 'expo-status-bar';
-import { StyleSheet, Text, View } from 'react-native';
+import { SafeAreaView, StyleSheet } from 'react-native';
+
+import { FeedScreen } from './src/FeedScreen';
 
 export default function App() {
   return (
-    <View style={styles.container}>
-      <Text style={styles.title}>Guised Up</Text>
-      <Text style={styles.description}>
-        Feed Screen implementation is planned for a later phase.
-      </Text>
+    <SafeAreaView style={styles.safeArea}>
+      <FeedScreen />
       <StatusBar style="dark" />
-    </View>
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  safeArea: {
     flex: 1,
-    backgroundColor: '#fff',
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 32,
-  },
-  title: {
-    color: '#111',
-    fontSize: 28,
-    fontWeight: '700',
-  },
-  description: {
-    color: '#555',
-    fontSize: 16,
-    lineHeight: 24,
-    marginTop: 12,
-    textAlign: 'center',
+    backgroundColor: '#F6F7F9',
   },
 });
